@@ -45,6 +45,7 @@ def create_resource():
                 "access_level": data.get("access_level", ""),
                 "upvotes": 0,
                 "downvotes": 0,
+                "community": data.get("community",""),
             }
         )
         
@@ -64,7 +65,7 @@ def get_all_resources():
     try:
         result = databases.list_documents(
             database_id=Config.APPWRITE_DATABASE_ID,
-            collection_id=Config.APPWRITE_RESOURCES_COLLECTION_ID
+            collection_id=Config.APPWRITE_RESOURCES_COLLECTION_ID,
         )
         # result typically looks like { 'total': X, 'documents': [...] }
         return jsonify(result), 200

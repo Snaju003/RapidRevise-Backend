@@ -43,7 +43,7 @@ def create_community():
                 "name": data.get("name", ""),
                 "description": data.get("description", ""),
                 # Use the user_id from session
-                "user": user_id
+                "user": user_id,
             }
         )
         
@@ -54,6 +54,7 @@ def create_community():
             "description": result.get("description"),
             "createdAt": result.get("$createdAt"),
             "updatedAt": result.get("$updatedAt"),
+            "communityResources":result.get("communityResources"),
             "user": {}
         }
         
@@ -160,6 +161,7 @@ def get_community(community_id):
 
 
 @community_bp.route('/<community_id>', methods=['PUT'])
+@login_required
 def update_community(community_id):
     """
     Update an existing Community document.
@@ -224,6 +226,7 @@ def update_community(community_id):
 
 
 @community_bp.route('/<community_id>', methods=['DELETE'])
+@login_required
 def delete_community(community_id):
     """
     Delete a Community document by its ID.
@@ -241,3 +244,63 @@ def delete_community(community_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@community_bp.route('/<community_id>/vote', methods=['PUT'])
+@login_required
+def vote_community(community_id):
+    """
+    Update the vote count for a Community document.
+    Expects JSON with a field "vote":
+        - If vote is 1, increment upvotes by 1.
+        - If vote is -1, increment downvotes by 1.
+    Returns a JSON object containing the community id, upvotes, and downvotes.
+    """
+    data = request.json or {}
+    vote = data.get("vote")
+
+    if vote not in [1, -1]:
+        return jsonify({"error": "Invalid vote value. Must be 1 (upvote) or -1 (downvote)."}), 400
+
+    client = create_appwrite_client()
+    databases = Databases(client)
+
+    try:
+        # Retrieve the current community document
+        doc = databases.get_document(
+            database_id=Config.APPWRITE_DATABASE_ID,
+            collection_id=Config.APPWRITE_COMMUNITY_COLLECTION_ID,
+            document_id=community_id
+        )
+        
+        # Retrieve current vote counts (default to 0 if not present)
+        current_upvotes = doc.get("upvotes") or 0
+        current_downvotes = doc.get("downvotes") or 0
+
+        if vote == 1:
+            new_upvotes = current_upvotes + 1
+            new_downvotes = current_downvotes
+        else:  # vote == -1
+            new_upvotes = current_upvotes
+            new_downvotes = current_downvotes + 1
+
+        # Update the document with the new vote counts
+        updated_doc = databases.update_document(
+            database_id=Config.APPWRITE_DATABASE_ID,
+            collection_id=Config.APPWRITE_COMMUNITY_COLLECTION_ID,
+            document_id=community_id,
+            data={
+                "upvotes": new_upvotes,
+                "downvotes": new_downvotes
+            }
+        )
+
+        # Filter the response to only include the desired fields
+        filtered_result = {
+            "id": updated_doc.get("$id"),
+            "upvotes": updated_doc.get("upvotes"),
+            "downvotes": updated_doc.get("downvotes")
+        }
+        return jsonify(filtered_result), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
