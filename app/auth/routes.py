@@ -5,7 +5,7 @@ from functools import wraps
 from appwrite.id import ID
 from app.utils.appwrite import get_database_service
 from app.auth.utils import login_required
-from appwrite.query import Query  # <-- Make sure to import Query for filtering
+from appwrite.query import Query
 
 auth_bp = Blueprint('auth', __name__)
 

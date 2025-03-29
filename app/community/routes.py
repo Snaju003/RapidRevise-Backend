@@ -2,23 +2,15 @@
 from flask import request, jsonify
 from appwrite.client import Client
 from appwrite.services.databases import Databases
+from app.services import create_appwrite_client
 from appwrite.query import Query
+from app.auth.utils import login_required
 
-from . import community_bp  # The blueprint from __init__.py
+from . import community_bp
 from config import Config
 
-def create_appwrite_client():
-    """
-    Helper function to create and configure an Appwrite Client.
-    """
-    client = Client()
-    client.set_endpoint(Config.APPWRITE_ENDPOINT)   # Your Appwrite endpoint
-    client.set_project(Config.APPWRITE_PROJECT_ID)     # Your project ID
-    client.set_key(Config.APPWRITE_API_KEY)         # Your API key
-    client.set_self_signed(True)                    # Only use for dev/testing if self-signed
-    return client
-
 @community_bp.route('/', methods=['POST'])
+# @login_required
 def create_community():
     """
     Create (insert) a new Community document in Appwrite.
@@ -44,7 +36,7 @@ def create_community():
             data={
                 "name": data.get("name", ""),
                 "description": data.get("description", ""),
-                "user": data.get("user", "")  # Just the user ID reference
+                "user": data.get("user", ""),
             }
         )
         
@@ -53,6 +45,8 @@ def create_community():
             "$id": result.get("$id"),
             "name": result.get("name"),
             "description": result.get("description"),
+            "createdAt": result.get("$createdAt"),
+            "updatedAt": result.get("$updatedAt"),
             "user": {}
         }
         
@@ -91,6 +85,7 @@ def get_all_communities():
                 "id": doc.get("$id"),
                 "name": doc.get("name"),
                 "description": doc.get("description"),
+                "upvotes": doc.get("upvotes"),
                 "user": {},
                 "createdAt": doc.get("$createdAt"),
                 "updatedAt": doc.get("$updatedAt"),
@@ -210,6 +205,25 @@ def update_community(community_id):
             filtered_result["user"] = {"id": user_id, "name": ""}
         
         return jsonify(filtered_result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@community_bp.route('/<community_id>', methods=['DELETE'])
+def delete_community(community_id):
+    """
+    Delete a Community document by its ID.
+    """
+    client = create_appwrite_client()
+    databases = Databases(client)
+
+    try:
+        databases.delete_document(
+            database_id=Config.APPWRITE_DATABASE_ID,
+            collection_id=Config.APPWRITE_COMMUNITY_COLLECTION_ID,
+            document_id=community_id
+        )
+        return jsonify({"message": "Community deleted successfully."}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
