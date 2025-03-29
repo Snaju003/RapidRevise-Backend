@@ -42,7 +42,9 @@ def create_resource():
                 "tags": data.get("tags", []),
                 "difficulty_level": data.get("difficulty_level", ""),
                 "summary": data.get("summary", ""),
-                "access_level": data.get("access_level", "")
+                "access_level": data.get("access_level", ""),
+                "upvotes": 0,
+                "downvotes": 0,
             }
         )
         

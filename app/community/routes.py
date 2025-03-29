@@ -86,6 +86,7 @@ def get_all_communities():
                 "name": doc.get("name"),
                 "description": doc.get("description"),
                 "upvotes": doc.get("upvotes"),
+                "downvotes": doc.get("downvotes"),
                 "user": {},
                 "createdAt": doc.get("$createdAt"),
                 "updatedAt": doc.get("$updatedAt"),
