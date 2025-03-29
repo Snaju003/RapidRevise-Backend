@@ -27,7 +27,8 @@ def exam_prep_endpoint():
         Config.GROQ_API_ANALYSE_PAPER_KEY,
         Config.GROQ_API_GENERATE_QUERY_KEY,
         Config.GROQ_API_RESPONSE_STRUCTURE_KEY,
-        "AIzaSyBONOTiEgoajQihP8-V7qaTlmH-0Nofkg0"
+        Config.YOUTUBE_API_KEY
+        
     )
     
     # Process the workflow using the parameters provided in the JSON body
