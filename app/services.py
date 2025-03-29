@@ -1,6 +1,6 @@
 # app/services.py
 from appwrite.client import Client
-from appwrite.services.database import Database
+from appwrite.services.databases import Databases
 from flask import current_app
 
 def create_appwrite_client():
@@ -18,7 +18,7 @@ def get_documents(collection: str):
     Use the collection name (e.g., 'User', 'Community', or 'Resources').
     """
     client = create_appwrite_client()
-    database = Database(client)
+    database = Databases(client)
     db_id = current_app.config['APPWRITE_DB']
     # The list_documents method requires the database ID and collection ID.
     # You might store your actual Appwrite collection IDs in your config if they differ from collection names.
