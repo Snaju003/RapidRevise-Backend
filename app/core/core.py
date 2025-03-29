@@ -4,7 +4,6 @@ from typing import Dict, List, Any, Union
 from groq import Groq
 import os
 from googleapiclient.discovery import build
-from langchain_fireworks import Fireworks
 
 
 class ExamPrepAgent:
@@ -102,10 +101,11 @@ class ExamPrepAgent:
             self.logger.error(error_msg)
             return {"error": error_msg}
 
-    def _call_llm(self, prompt: str, temperature: float = 0.7, stage: str) -> str:
+    def _call_llm(self, prompt: str, stage: str, temperature: float = 0.4) -> str:
         """Call the Fireworks LLM with the given prompt."""
         try:
             self.logger.info("Calling LLM with prompt")
+            self.logger.info(f"_call_llm called with stage: {stage}")
 
             if stage == "FETCH_QUESTION_PAPER":
                 chat_completion = self.groq_fetch_paper.chat.completions.create(
@@ -306,7 +306,7 @@ class ExamPrepAgent:
             department=department
         )
 
-        response = self._call_llm(prompt)
+        response = self._call_llm(prompt,stage="GENERATE_QUERY")
 
         # Extract search queries from the response
         search_queries = self._extract_search_queries(response)

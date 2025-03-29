@@ -1,12 +1,20 @@
 from flask import Blueprint, jsonify
 from app.auth.utils import login_required
 from app.models.user import User
+from app.core.core import ExamPrepAgent
+from config import Config
 
 main_bp = Blueprint('main', __name__)
 
 @main_bp.route('/')
 def index():
-    return "Welcome to the Flask-Google-Appwrite API"
+    exam = ExamPrepAgent(Config.GROQ_API_FETCH_PAPER_KEY, Config.GROQ_API_ANALYSE_PAPER_KEY,Config.GROQ_API_GENERATE_QUERY_KEY,Config.GROQ_API_RESPONSE_STRUCTURE_KEY,"AIzaSyBONOTiEgoajQihP8-V7qaTlmH-0Nofkg0")
+    result=exam.process_workflow(
+        board= "CBSE",
+        class_level="12",
+        subject="Physics",
+        department="Science",
+        )
 
 @main_bp.route('/user/me')
 @login_required
