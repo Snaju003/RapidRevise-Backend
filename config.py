@@ -9,7 +9,7 @@ class Config:
     # Google OAuth Configuration
     GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
     GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
-    GOOGLE_REDIRECT_URI = os.environ.get('GOOGLE_REDIRECT_URI', 'http://localhost:5000/auth/google/callback')
+    GOOGLE_REDIRECT_URI = os.environ.get('GOOGLE_REDIRECT_URI', 'http://localhost:3000/auth/google/callback')
     GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/auth'
     GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
     GOOGLE_USER_INFO_URL = 'https://www.googleapis.com/oauth2/v2/userinfo'
