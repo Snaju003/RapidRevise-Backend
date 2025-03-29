@@ -8,12 +8,15 @@ from langchain_fireworks import Fireworks
 
 
 class ExamPrepAgent:
-    def __init__(self, groq_api_key: str, youtube_api_key: str):
-        # self.groq = Groq(api_key=groq_api_key)
-        self.groq = Fireworks(
-            api_key=groq_api_key,
-            model="accounts/fireworks/models/llama-v3p1-405b-instruct",
-        )
+    def __init__(self, groq_fetch_paper_api_key: str, groq_extract_topic_api_key: str, groq_gen_query_api_key: str, groq_struct_res_api_key: str, youtube_api_key: str):
+        self.groq_fetch_paper = Groq(api_key=groq_fetch_paper_api_key)
+        self.groq_extract_topic = Groq(api_key=groq_extract_topic_api_key)
+        self.groq_gen_query = Groq(api_key=groq_gen_query_api_key)
+        self.groq_struct_res = Groq(api_key=groq_struct_res_api_key)
+        # self.groq = Fireworks(
+        #     api_key=groq_api_key,
+        #     model="llama-3.3-70b-versatilels/llama-v3p1-405b-instruct",
+        # )
         self.youtube_api_key = youtube_api_key
         self.youtube = build('youtube', 'v3', developerKey=youtube_api_key)
         self.conversation_history = []
@@ -99,28 +102,57 @@ class ExamPrepAgent:
             self.logger.error(error_msg)
             return {"error": error_msg}
 
-    def _call_llm(self, prompt: str, temperature: float = 0.7) -> str:
+    def _call_llm(self, prompt: str, temperature: float = 0.7, stage: str) -> str:
         """Call the Fireworks LLM with the given prompt."""
         try:
             self.logger.info("Calling LLM with prompt")
 
-            from langchain_core.messages import SystemMessage, HumanMessage
+            if stage == "FETCH_QUESTION_PAPER":
+                chat_completion = self.groq_fetch_paper.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": self.SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model="llama-3.3-70b-versatile",  # Using LLaMA 3 70B model
+                    temperature=temperature,
+                    max_tokens=4096
+                )
+            elif stage == "ANALYZE_QUESTION_PAPER":
+                chat_completion = self.groq_extract_topic.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": self.SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model="llama-3.3-70b-versatile",  # Using LLaMA 3 70B model
+                    temperature=temperature,
+                    max_tokens=4096
+                )
+            elif stage == "GENERATE_QUERY":
+                chat_completion = self.groq_gen_query.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": self.SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model="llama-3.3-70b-versatile",  # Using LLaMA 3 70B model
+                    temperature=temperature,
+                    max_tokens=4096
+                )
+            elif stage == "RETURN_RESPONSE":
+                chat_completion = self.groq_struct_res.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": self.SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model="llama-3.3-70b-versatile",  # Using LLaMA 3 70B model
+                    temperature=temperature,
+                    max_tokens=4096
+                )
+            else:
+                error_msg = f"Unknown stage: {stage} {prompt}"
+                self.logger.error(error_msg)
+                return {"error": error_msg}
 
-            # Create properly formatted messages for LangChain
-            messages = [
-                SystemMessage(content=self.SYSTEM_PROMPT),
-                HumanMessage(content=prompt)
-            ]
-
-            # Call the LLM with the correct format
-            response = self.groq.invoke(
-                messages, temperature=temperature, max_tokens=4096)
-            # For debugging
-            # print(f"Response type: {type(response)}")
-            # print(f"Response value: {response}")
-            # Extract the content from the response
-            response_content = response
-
+            response_content = chat_completion.choices[0].message.content
             self.logger.info("Received response from LLM")
 
             # Add to conversation history
@@ -139,7 +171,7 @@ class ExamPrepAgent:
         """Fetch information about relevant question papers."""
         board = request.get("board", "")
         # Changed variable name from 'class' to 'class_level'
-        class_level = request.get("class", "")
+        class_level = request.get("class_level", "")
         department = request.get("department", "")
         subject = request.get("subject", "")
 
@@ -147,10 +179,10 @@ class ExamPrepAgent:
             board=board,
             class_level=class_level,  # Using class_level instead of class
             department=department,
-            subject=subject
+            subject=subject,
         )
 
-        response = self._call_llm(prompt)
+        response = self._call_llm(prompt, stage="FETCH_QUESTION_PAPER")
 
         # In a real implementation, this would trigger actual paper fetching
         # For now, we just return the LLM's structured guidance
@@ -179,10 +211,10 @@ class ExamPrepAgent:
             subject=subject,
             board=board,
             class_level=class_level,  # Using class_level
-            department=department
+            department=department,
         )
 
-        response = self._call_llm(prompt)
+        response = self._call_llm(prompt, stage="ANALYZE_QUESTION_PAPER")
 
         # Parse the response to extract topics
         # This would be more sophisticated in a real implementation
@@ -225,7 +257,6 @@ class ExamPrepAgent:
             {
                 "topic_name": "Name of the topic",
                 "importance": 8,  // Scale of 1-10
-                "question_type": "Theoretical/Numerical/Mixed",
                 "prep_time_minutes": 60  // Estimated preparation time in minutes
             },
             // More topics...
@@ -235,7 +266,10 @@ class ExamPrepAgent:
         """
 
         structured_response = self._call_llm(
-            structuring_prompt, temperature=0.7)
+            prompt=structuring_prompt,
+            temperature=0.7,
+            stage="ANALYZE_QUESTION_PAPER"
+        )
 
         # Try to extract just the JSON part
         try:
@@ -366,7 +400,7 @@ class ExamPrepAgent:
         # Add the topics and videos information to the prompt
         prompt += f"\n\nTopics and videos information: {json.dumps(topics_with_videos, indent=2)}"
 
-        response = self._call_llm(prompt)
+        response = self._call_llm(prompt, stage="RETURN_RESPONSE")
 
         return {
             "status": "success",
@@ -382,7 +416,7 @@ class ExamPrepAgent:
             papers_request = {
                 "type": "FETCH_QUESTION_PAPER",
                 "board": board,
-                "class": class_level,  # Still using 'class' in the input request
+                "class_level": class_level,  # Still using 'class' in the input request
                 "department": department,
                 "subject": subject
             }
@@ -426,22 +460,3 @@ class ExamPrepAgent:
             error_msg = f"Error in workflow: {str(e)}"
             self.logger.error(error_msg)
             return {"error": error_msg}
-
-
-# # Example usage
-# if __name__ == "__main__":
-#     # Initialize the agent with API keys
-#     agent = ExamPrepAgent(
-#         groq_api_key=os.environ.get("GROQ_API_KEY"),
-#         youtube_api_key=os.environ.get("YOUTUBE_API_KEY")
-#     )
-
-#     # Run the complete workflow
-#     result = agent.process_workflow(
-#         board="CBSE",
-#         class_level="12",
-#         department="Science",
-#         subject="Computer Science"
-#     )
-
-#     print(json.dumps(result, indent=2))
