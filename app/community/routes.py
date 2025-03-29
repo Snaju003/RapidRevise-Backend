@@ -39,7 +39,7 @@ def create_community():
     try:
         result = databases.create_document(
             database_id=Config.APPWRITE_DATABASE_ID,
-            collection_id=Config.COMMUNITY_COLLECTION_ID,
+            collection_id=Config.APPWRITE_COMMUNITY_COLLECTION_ID,
             document_id='unique()',  # Let Appwrite generate an ID
             data={
                 "name": data.get("name", ""),
@@ -63,7 +63,7 @@ def get_all_communities():
     try:
         result = databases.list_documents(
             database_id=Config.APPWRITE_DATABASE_ID,
-            collection_id=Config.COMMUNITY_COLLECTION_ID
+            collection_id=Config.APPWRITE_COMMUNITY_COLLECTION_ID
         )
         # result is typically a dict with fields like: {'total': X, 'documents': [...]}
         return jsonify(result), 200
@@ -82,7 +82,7 @@ def get_community(community_id):
     try:
         result = databases.get_document(
             database_id=Config.APPWRITE_DATABASE_ID,
-            collection_id=Config.COMMUNITY_COLLECTION_ID,
+            collection_id=Config.APPWRITE_COMMUNITY_COLLECTION_ID,
             document_id=community_id
         )
         return jsonify(result), 200
@@ -109,7 +109,7 @@ def update_community(community_id):
         # }
         result = databases.update_document(
             database_id=Config.APPWRITE_DATABASE_ID,
-            collection_id=Config.COMMUNITY_COLLECTION_ID,
+            collection_id=Config.APPWRITE_COMMUNITY_COLLECTION_ID,
             document_id=community_id,
             data={
                 "name": data.get("name", ""),
