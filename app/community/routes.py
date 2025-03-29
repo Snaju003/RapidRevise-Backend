@@ -1,5 +1,5 @@
 # community/routes.py
-from flask import request, jsonify
+from flask import request, jsonify, session
 from appwrite.client import Client
 from appwrite.services.databases import Databases
 from app.services import create_appwrite_client
@@ -10,21 +10,27 @@ from . import community_bp
 from config import Config
 
 @community_bp.route('/', methods=['POST'])
-# @login_required
+@login_required
 def create_community():
     """
     Create (insert) a new Community document in Appwrite.
-    Expects JSON in the body with fields like: name, description, user (relationship ID).
+    Expects JSON in the body with fields like: name, description.
+    The user ID is taken from the session (login_required).
     """
     data = request.json or {}
     
     # Example JSON body:
     # {
     #   "name": "Flask Enthusiasts",
-    #   "description": "A place to discuss Flask tips and tricks",
-    #   "user": "user_document_id"   # The ID from your User collection if there's a relationship
+    #   "description": "A place to discuss Flask tips and tricks"
     # }
+    # The user ID is retrieved from the session instead of the request.
 
+    # Retrieve user_id from session (set during login)
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "No user_id found in session."}), 401
+    
     client = create_appwrite_client()
     databases = Databases(client)
 
@@ -36,7 +42,8 @@ def create_community():
             data={
                 "name": data.get("name", ""),
                 "description": data.get("description", ""),
-                "user": data.get("user", ""),
+                # Use the user_id from session
+                "user": user_id
             }
         )
         
@@ -56,12 +63,18 @@ def create_community():
                 "$id": user_obj.get("$id"),
                 "name": user_obj.get("name")
             }
+        else:
+            # If Appwrite returns only the user ID (string), handle accordingly
+            filtered_result["user"] = {
+                "$id": user_obj if isinstance(user_obj, str) else None,
+                "name": ""
+            }
         
         return jsonify(filtered_result), 201
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
+    
 
 @community_bp.route('/', methods=['GET'])
 def get_all_communities():
