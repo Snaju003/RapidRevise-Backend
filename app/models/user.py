@@ -16,7 +16,7 @@ class User:
         try:
             user_doc = database_service.get_document(
                 database_id=current_app.config['APPWRITE_DATABASE_ID'],
-                collection_id=current_app.config['APPWRITE_COLLECTION_ID'],
+                collection_id=current_app.config['APPWRITE_USER_COLLECTION_ID'],
                 document_id=user_id
             )
             return user_doc
@@ -34,7 +34,7 @@ class User:
         try:
             users = database_service.list_documents(
                 database_id=current_app.config['APPWRITE_DATABASE_ID'],
-                collection_id=current_app.config['APPWRITE_COLLECTION_ID'],
+                collection_id=current_app.config['APPWRITE_USER_COLLECTION_ID'],
                 queries=[f'email={email}']
             )
             

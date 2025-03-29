@@ -90,7 +90,7 @@ def google_callback():
         # Try to find user by email
         existing_users = database_service.list_documents(
             database_id=app.config['APPWRITE_DATABASE_ID'],
-            collection_id=app.config['APPWRITE_COLLECTION_ID'],
+            collection_id=app.config['APPWRITE_USER_COLLECTION_ID'],
             queries=[f'email={email}']
         )
         
@@ -110,7 +110,7 @@ def google_callback():
             
             database_service.update_document(
                 database_id=app.config['APPWRITE_DATABASE_ID'],
-                collection_id=app.config['APPWRITE_COLLECTION_ID'],
+                collection_id=app.config['APPWRITE_USER_COLLECTION_ID'],
                 document_id=user_id,
                 data=user_data
             )
@@ -119,7 +119,7 @@ def google_callback():
             user_id = ID.unique()
             database_service.create_document(
                 database_id=app.config['APPWRITE_DATABASE_ID'],
-                collection_id=app.config['APPWRITE_COLLECTION_ID'],
+                collection_id=app.config['APPWRITE_USER_COLLECTION_ID'],
                 document_id=user_id,
                 data=user_data
             )

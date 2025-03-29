@@ -101,7 +101,7 @@ def google_callback():
         user_id = ID.unique()
         new_user = database_service.create_document(
             database_id=app.config['APPWRITE_DATABASE_ID'],
-            collection_id=app.config['APPWRITE_COLLECTION_ID'],
+            collection_id=app.config['APPWRITE_USER_COLLECTION_ID'],
             document_id=user_id,
             data=user_data
         )
@@ -112,7 +112,7 @@ def google_callback():
         session['name'] = name
         
         # Redirect to frontend with success
-        return redirect(f"/auth/success?user_id={user_id}")
+        return redirect(f"http://localhost:3000/profile?user_id={user_id}")
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
