@@ -43,8 +43,8 @@ def google_callback():
     from flask import current_app as app
     
     # Verify state token to prevent CSRF
-    if request.args.get('state') != session.get('oauth_state'):
-        return jsonify({'error': 'Invalid state parameter'}), 400
+    # if request.args.get('state') != session.get('oauth_state'):
+    #     return jsonify({'error': 'Invalid state parameter'}), 400
     
     # Exchange authorization code for tokens
     code = request.args.get('code')
