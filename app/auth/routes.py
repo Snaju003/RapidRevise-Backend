@@ -5,6 +5,7 @@ from functools import wraps
 from appwrite.id import ID
 from app.utils.appwrite import get_database_service
 from app.auth.utils import login_required
+from appwrite.query import Query  # <-- Make sure to import Query for filtering
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -42,7 +43,7 @@ def google_callback():
     """
     from flask import current_app as app
     
-    # Verify state token to prevent CSRF
+    # (Optional) Verify state token to prevent CSRF
     # if request.args.get('state') != session.get('oauth_state'):
     #     return jsonify({'error': 'Invalid state parameter'}), 400
     
@@ -82,41 +83,57 @@ def google_callback():
     google_id = user_info.get('id')
     email = user_info.get('email')
     name = user_info.get('name')
+    profile_picture = user_info.get('picture')
     
-    # Create user in Appwrite without checking if they exist
     try:
         database_service = get_database_service()
         
-        # Prepare user data
-        user_data = {
-            'name': name,
-            'email': email,
-            'googleId': google_id,
-            'role': 'USER',
-            'interests': [],
-            # Remove 'preferences' if it's not in your schema
-        }
-        
-        # Create new user in Appwrite with a unique ID
-        user_id = ID.unique()
-        new_user = database_service.create_document(
+        # 1. Check if user with matching name AND email already exists
+        existing_users = database_service.list_documents(
             database_id=app.config['APPWRITE_DATABASE_ID'],
             collection_id=app.config['APPWRITE_USER_COLLECTION_ID'],
-            document_id=user_id,
-            data=user_data
+            queries=[
+                Query.equal('name', name),
+                Query.equal('email', email)
+            ]
         )
         
-        # Set session
+        if existing_users["total"] > 0:
+            # 2a. User already exists, get existing user doc
+            existing_user = existing_users["documents"][0]
+            user_id = existing_user["$id"]
+        else:
+            # 2b. Create new user in Appwrite with a unique ID
+            user_id = ID.unique()
+            user_data = {
+                'name': name,
+                'email': email,
+                'googleId': google_id,
+                'profile_picture': profile_picture,
+                'role': 'USER',
+                'interests': [],
+                # If 'preferences' is in your schema, add it here (e.g., 'preferences': "")
+            }
+            new_user = database_service.create_document(
+                database_id=app.config['APPWRITE_DATABASE_ID'],
+                collection_id=app.config['APPWRITE_USER_COLLECTION_ID'],
+                document_id=user_id,
+                data=user_data
+            )
+        
+        # 3. Store user details in session
         session['user_id'] = user_id
         session['email'] = email
         session['name'] = name
+        session['profile_picture'] = profile_picture
+        session['role'] = 'USER'
         
-        # Redirect to frontend with success
+        # 4. Redirect to frontend with success
         return redirect(f"http://localhost:3000/profile?user_id={user_id}")
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    
+
 @auth_bp.route('/success')
 def auth_success():
     """
@@ -126,7 +143,13 @@ def auth_success():
     return jsonify({
         'success': True,
         'message': 'Authentication successful',
-        'user_id': user_id
+        'user_id': {
+            'id': user_id,
+            'name': session.get('name'),
+            'email': session.get('email'),
+            'profile_picture': session.get('profile_picture'),
+            'role': session.get('role')
+        }
     })
 
 @auth_bp.route('/logout')

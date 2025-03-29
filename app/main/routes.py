@@ -27,7 +27,7 @@ def get_current_user():
             'id': user_doc.get('$id'),
             'name': user_doc.get('name'),
             'email': user_doc.get('email'),
-            'googleId': user_doc.get('googleId'),
+            'profile_picture': user_doc.get('profile_picture'),
             'role': user_doc.get('role'),
             'interests': user_doc.get('interests'),
             'preferences': user_doc.get('preferences')
