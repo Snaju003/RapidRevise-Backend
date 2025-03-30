@@ -1,4 +1,8 @@
+from fileinput import filename
+import os
 from flask import request, jsonify
+from werkzeug.utils import secure_filename
+from app.core.pdf_file_reader import RagService
 from app.study_plan import bp
 from app.services import create_appwrite_client
 from appwrite.services.databases import Databases
@@ -324,3 +328,60 @@ def delete_study_plan(id):
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+    
+@bp.route('/pdf', methods=['POST'])
+def upload_pdf():
+    """
+    Upload a PDF file to the server.
+    """
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files['file']
+
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    # Check if the file is a PDF
+    if not file.filename.lower().endswith('.pdf'):
+        return jsonify({"error": "Invalid file type. Please upload a PDF file."}), 400
+
+    # Secure the filename and create the directory if it doesn't exist
+    filename = secure_filename(file.filename)
+    directory = 'data'
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    file_path = os.path.join(directory, filename)
+
+    try:
+        file.save(file_path)
+    except Exception as e:
+        return jsonify({"error": f"Failed to save file: {str(e)}"}), 500
+
+    # Initialize RagService with the PDF file
+    try:
+        rag_service = RagService()
+        rag_service.initialize(file_path)
+        print("Initialized")
+    except Exception as e:
+        return jsonify({"error": f"Failed to initialize RagService: {str(e)}"}), 500
+
+    # Retrieve the prompt.
+    # First, try to get it from JSON if available.
+    prompt = None
+    if request.is_json:
+        prompt = request.json.get("prompt")
+    # If not available in JSON, check the form data.
+    if not prompt:
+        prompt = request.form.get("prompt")
+    if not prompt:
+        return jsonify({"error": "Prompt not provided."}), 400
+
+    try:
+        context = rag_service.get_context(prompt)
+        res = rag_service.generate_response(prompt, context)
+    except Exception as e:
+        return jsonify({"error": f"Error processing prompt: {str(e)}"}), 500
+
+    return jsonify({'message': str(res)}), 200
