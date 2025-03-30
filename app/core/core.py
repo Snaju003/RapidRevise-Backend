@@ -322,7 +322,7 @@ class ExamPrepAgent:
         # Extract the three different queries
         aspect_queries = [query.strip() for query in aspect_response.strip().split('\n') if query.strip()]
         
-        # Fallback to a default query if necessary
+        # Ensure we have at least one query, use the original method as fallback
         if not aspect_queries:
             original_prompt = self.type_prompts["GENERATE_QUERY"].format(
                 topic=topic,
@@ -337,39 +337,26 @@ class ExamPrepAgent:
         # Limit to 3 queries max
         aspect_queries = aspect_queries[:3]
         
-        # For each query, fetch candidate videos and accumulate them all
-        all_videos = []
+        # For each query, fetch videos
+        videos = []
+        already_selected_ids = set()  # Track video IDs across all aspects
+        
         for query in aspect_queries:
-            candidate_videos = self._search_youtube_single(query, subject, max_duration_minutes)
-            if candidate_videos:
-                all_videos.extend(candidate_videos)
-        
-        # Remove duplicates based on video_id
-        unique_videos = []
-        video_ids = set()
-        for video in all_videos:
-            if video.get("video_id") and video["video_id"] not in video_ids:
-                unique_videos.append(video)
-                video_ids.add(video["video_id"])
-        
-        # Ensure we have at least 3 videos; if not, perform an additional broader search
-        if len(unique_videos) < 3:
-            fallback_query = f"{topic} {subject} lecture"
-            additional_videos = self._search_youtube_single(fallback_query, subject, max_duration_minutes)
-            for video in additional_videos:
-                if video.get("video_id") and video["video_id"] not in video_ids:
-                    unique_videos.append(video)
-                    video_ids.add(video["video_id"])
-                if len(unique_videos) >= 3:
-                    break
-        
-        # Optionally, you can return exactly 3 videos or more if available.
-        # Here we ensure a minimum of 3 videos per topic.
+            aspect_videos = self._search_youtube_single(query, subject, max_duration_minutes)
+            if aspect_videos:
+                # Only add videos we haven't seen before
+                for video in aspect_videos:
+                    video_id = video.get("video_id")
+                    if video_id and video_id not in already_selected_ids:
+                        already_selected_ids.add(video_id)
+                        videos.append(video)
+                        break  # Just take one unique video per aspect
+                
         return {
             "status": "success",
             "topic": topic,
             "search_queries": aspect_queries,
-            "videos": unique_videos,  # This list will have at least 3 videos if available
+            "videos": videos,
             "metadata": {
                 "board": board,
                 "class_level": class_level,
@@ -377,8 +364,6 @@ class ExamPrepAgent:
                 "subject": subject
             }
         }
-
-
     def _extract_single_query(self, query_text: str) -> str:
         """Extract a single search query from the LLM response."""
         # Clean the response to get just the query
@@ -401,33 +386,53 @@ class ExamPrepAgent:
 
     def _search_youtube_single(self, query: str, subject: str, max_duration_minutes: int = None) -> List[Dict[str, Any]]:
         """
-        Search YouTube for lectures on a topic.
-        First, try to get one lecture whose title starts with 'Lec' or 'L'.
-        Then, add the next two lectures from the same channel.
+        Search YouTube for videos on a topic from Gate Smashers channel specifically.
         """
         try:
-            # Specific query targeting Gate Smashers
-            specific_query = f"{query} {subject} Gate Smashers lecture"
-            
-            # Search for videos from Gate Smashers on this topic
-            search_response = self.youtube.search().list(
-                q=specific_query,
+            # Direct query that includes topic, subject and specifically targets Gate Smashers
+            gate_smashers_query = f"{query} lectures {subject} Gate Smashers"
+            print(gate_smashers_query)
+            # First, find the Gate Smashers channel ID
+            channel_search_response = self.youtube.search().list(
+                q="Gate Smashers",
                 part="snippet",
-                maxResults=10,  # Request more to filter
-                type="video"
+                maxResults=5,
+                type="channel"
             ).execute()
             
+            gate_smashers_channel_id = None
+            for item in channel_search_response.get("items", []):
+                if "Gate Smashers" in item["snippet"]["title"]:
+                    gate_smashers_channel_id = item["snippet"]["channelId"]
+                    break
+            
+            if not gate_smashers_channel_id:
+                self.logger.warning("Gate Smashers channel not found")
+                return []
+                
+            # Now search for videos from Gate Smashers on the topic
+            channel_videos_response = self.youtube.search().list(
+                q=gate_smashers_query,
+                part="snippet",
+                maxResults=15,  # Request more to filter
+                type="video",
+                channelId=gate_smashers_channel_id
+            ).execute()
+            
+            # Process the videos from Gate Smashers
             candidate_videos = []
-            # Process the search response and include channel_id in each candidate
-            for item in search_response.get("items", []):
-                channel_title = item["snippet"]["channelTitle"]
-                # Check if this is from Gate Smashers (case-insensitive)
-                if "gate smashers" not in channel_title.lower():
-                    continue
-                    
+            already_selected_ids = set()  # Track video IDs to avoid duplicates
+            
+            for item in channel_videos_response.get("items", []):
                 video_id = item["id"]["videoId"]
                 
-                # Get video details to check duration and to extract channel_id
+                # Skip if we've already processed this video
+                if video_id in already_selected_ids:
+                    continue
+                    
+                already_selected_ids.add(video_id)
+                
+                # Get video details
                 video_response = self.youtube.videos().list(
                     part="contentDetails,statistics,snippet",
                     id=video_id
@@ -438,121 +443,51 @@ class ExamPrepAgent:
 
                 video_details = video_response["items"][0]
                 
+                # Filter by duration
                 duration_str = video_details.get("contentDetails", {}).get("duration", "PT0M0S")
                 duration_obj = isodate.parse_duration(duration_str)
                 duration_minutes = duration_obj.total_seconds() / 60
                 
-                # Skip if video is too long or too short (e.g., less than 3 minutes)
+                # Skip if video is too long and max_duration is specified
                 if max_duration_minutes and duration_minutes > max_duration_minutes:
                     continue
+                    
+                # Skip if video is too short (likely a short)
                 if duration_minutes < 3:
                     continue
                 
-                title = video_details["snippet"]["title"]
-                # Skip if title indicates a short video
-                if any(tag in title.lower() for tag in ["#shorts", "#short", "#reels", "shorts"]):
+                # Check title to filter out shorts
+                title = video_details["snippet"]["title"].lower()
+                if "#shorts" in title or "#short" in title or "#reels" in title or "shorts" in title:
                     continue
                 
+                # Format duration
                 hours, remainder = divmod(int(duration_obj.total_seconds()), 3600)
                 minutes, seconds = divmod(remainder, 60)
                 formatted_duration = f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
                 
+                # Add to candidates
                 candidate_videos.append({
-                    "title": title,
-                    "channel": channel_title,
+                    "title": item["snippet"]["title"],
+                    "channel": "Gate Smashers",
                     "video_id": video_id,
                     "url": f"https://www.youtube.com/watch?v={video_id}",
                     "thumbnail": item["snippet"]["thumbnails"]["high"]["url"],
                     "duration": formatted_duration,
                     "duration_minutes": round(duration_minutes, 1),
-                    "views": video_details.get("statistics", {}).get("viewCount", "Unknown"),
-                    "channel_id": video_details["snippet"].get("channelId", "")
+                    "views": video_details.get("statistics", {}).get("viewCount", "Unknown")
                 })
                 
-                if len(candidate_videos) >= 10:
-                    break  # limit candidate pool
-            
-            # Look for a primary video whose title starts with 'Lec' or 'L'
-            primary_video = None
-            for video in candidate_videos:
-                if re.match(r'^(lec|l)\b', video["title"].strip().lower()):
-                    primary_video = video
+                # Stop if we have enough candidates
+                if len(candidate_videos) >= 3:
                     break
-
-            if primary_video:
-                final_videos = [primary_video]
-                channel_id = primary_video.get("channel_id")
-                # Search the channel for additional videos
-                if channel_id:
-                    channel_response = self.youtube.search().list(
-                        channelId=channel_id,
-                        part="snippet",
-                        maxResults=10,
-                        type="video",
-                        order="date"
-                    ).execute()
-
-                    additional_videos = []
-                    for item in channel_response.get("items", []):
-                        vid_id = item["id"]["videoId"]
-                        # Skip if it's the same as the primary video
-                        if vid_id == primary_video["video_id"]:
-                            continue
-                        
-                        # Get video details for filtering
-                        video_resp = self.youtube.videos().list(
-                            part="contentDetails,statistics,snippet",
-                            id=vid_id
-                        ).execute()
-                        if not video_resp["items"]:
-                            continue
-                        vid_details = video_resp["items"][0]
-                        
-                        dur_str = vid_details.get("contentDetails", {}).get("duration", "PT0M0S")
-                        dur_obj = isodate.parse_duration(dur_str)
-                        dur_minutes = dur_obj.total_seconds() / 60
-                        if max_duration_minutes and dur_minutes > max_duration_minutes:
-                            continue
-                        if dur_minutes < 3:
-                            continue
-                        vid_title = vid_details["snippet"]["title"]
-                        if any(tag in vid_title.lower() for tag in ["#shorts", "#short", "#reels", "shorts"]):
-                            continue
-
-                        hours, rem = divmod(int(dur_obj.total_seconds()), 3600)
-                        mins, secs = divmod(rem, 60)
-                        vid_formatted_duration = f"{hours}:{mins:02d}:{secs:02d}" if hours else f"{mins}:{secs:02d}"
-                        
-                        additional_videos.append({
-                            "title": vid_title,
-                            "channel": item["snippet"]["channelTitle"],
-                            "video_id": vid_id,
-                            "url": f"https://www.youtube.com/watch?v={vid_id}",
-                            "thumbnail": item["snippet"]["thumbnails"]["high"]["url"],
-                            "duration": vid_formatted_duration,
-                            "duration_minutes": round(dur_minutes, 1),
-                            "views": vid_details.get("statistics", {}).get("viewCount", "Unknown")
-                        })
-                        
-                        if len(additional_videos) >= 2:
-                            break
-                else:
-                    additional_videos = []
-
-                # Combine the primary video with the two additional ones
-                final_videos.extend(additional_videos)
-                # Ensure we return exactly 3 videos if available
-                return final_videos[:3]
-            else:
-                # Fallback: if no primary video found, use up to 3 from the candidate list
-                return candidate_videos[:3]
-                
+            
+            # Return up to 3 videos
+            return candidate_videos[:3]
+            
         except Exception as e:
             self.logger.error(f"Error searching YouTube: {str(e)}")
             return [{"error": f"Failed to search YouTube: {str(e)}"}]
-
-
-
 
     def _return_response(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Format the final response with topics and recommended videos."""
@@ -608,9 +543,6 @@ class ExamPrepAgent:
             # Ensure we only process 5 topics at most
             important_topics = analysis_response.get("important_topics", [])[:5]
             
-            # Track all fetched video IDs to ensure uniqueness across topics
-            all_video_ids = set()
-            
             for topic in important_topics:
                 query_request = {
                     "type": "GENERATE_QUERY",
@@ -619,21 +551,11 @@ class ExamPrepAgent:
                     "max_duration_minutes": max_duration_minutes
                 }
                 query_response = self.process_request(query_request)
-                
-                # Filter out duplicates across topics
-                unique_videos = []
-                for video in query_response.get("videos", []):
-                    video_id = video.get("video_id")
-                    
-                    # Only include videos we haven't seen before
-                    if video_id and video_id not in all_video_ids:
-                        all_video_ids.add(video_id)
-                        unique_videos.append(video)
-                
-                # Add unique videos to the topic
+
+                # Add videos to the topic
                 topic_with_videos = {
                     **topic,
-                    "videos": unique_videos
+                    "videos": query_response.get("videos", [])
                 }
                 topics_with_videos.append(topic_with_videos)
 
