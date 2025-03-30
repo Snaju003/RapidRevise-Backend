@@ -2,13 +2,15 @@
 
 from flask import request, jsonify
 from appwrite.client import Client
+from app.auth.utils import admin_required
 from app.services import create_appwrite_client
 from appwrite.services.databases import Databases
 from appwrite.id import ID
 from config import Config
 from . import resources_bp
 
-@resources_bp.route('/', methods=['POST'])  
+@resources_bp.route('/', methods=['POST'])
+@admin_required
 def create_resource():
     """
     Create a new resource document in Appwrite.
