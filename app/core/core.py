@@ -33,12 +33,29 @@ class ExamPrepAgent:
                 - Class/Year Level: {class_level}
                 - Department/Stream: {department}
                 - Subject: {subject}
+                Fetch the question papers for this topic. atleast 5.
+                I don't need answer.. Only question
+                Keep Subject name at top
             """,
             "ANALYZE_QUESTION_PAPER": """
                 Extract the most occurring or likely-to-be-asked topics from these question papers:
                 {paper}
 
                 Provide your analysis as a structured list of topics(hardly 5) with their importance metrics.
+                Only return topic with belong to this object for exam prep.
+                For Physics give me Newton's Law, Optics, Quantum Physics, EM
+                For Biology give me Reproductive System, Human Anatomy,Cellular Respiration
+                For Maths give me Calculas, vector algebra, linear ,trigonometry 
+                For Networks give me Network Protocols, Network Security, Wireless Communications.
+                For Operating Systems give me Process Scheduling, Memory Management, File Systems.
+                For DBMS give me SQL Fundamentals, Database Normalization, Transaction Management.
+                For Data Structures give me Arrays and Lists, Trees and Graphs, Hash Tables.
+                For Algorithms give me Sorting Techniques, Searching Techniques, Dynamic Programming.
+                For Computer Architecture give me Instruction Set Architecture, Pipelining, Cache Memory.
+                For Software Engineering give me Software Development Life Cycle (SDLC), Design Patterns, Testing & Quality Assurance.
+                For Cyber Security give me Cryptography, Network Security, Ethical Hacking.
+                For Machine Learning give me Supervised Learning, Unsupervised Learning, Neural Networks.
+                For Artificial Intelligence give me Search Algorithms, Knowledge Representation, Reinforcement Learning.
             """,
             "GENERATE_QUERY": """
                 Generate a search query string for YouTube based on the topics: "{topic}" in {subject} for {board} {class_level} {department}.
