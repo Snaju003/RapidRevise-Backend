@@ -305,6 +305,7 @@ class ExamPrepAgent:
         class_level = request.get("metadata", {}).get("class_level", "")
         department = request.get("metadata", {}).get("department", "")
         max_duration_minutes = request.get("max_duration_minutes", "180 Minutes")
+        already_selected_ids = request.get("already_selected_ids", set())
         
         # Generate diverse aspect queries for the topic
         aspect_prompt = f"""
@@ -339,7 +340,6 @@ class ExamPrepAgent:
         
         # For each query, fetch videos
         videos = []
-        already_selected_ids = set()  # Track video IDs across all aspects
         
         for query in aspect_queries:
             aspect_videos = self._search_youtube_single(query, subject, max_duration_minutes)
@@ -357,6 +357,7 @@ class ExamPrepAgent:
             "topic": topic,
             "search_queries": aspect_queries,
             "videos": videos,
+            "already_selected_ids": already_selected_ids,
             "metadata": {
                 "board": board,
                 "class_level": class_level,
@@ -364,6 +365,7 @@ class ExamPrepAgent:
                 "subject": subject
             }
         }
+
     def _extract_single_query(self, query_text: str) -> str:
         """Extract a single search query from the LLM response."""
         # Clean the response to get just the query
@@ -383,6 +385,33 @@ class ExamPrepAgent:
         query = re.sub(r'^\d+\.\s*', '', query)
         
         return query
+
+    def _sort_videos(self, videos, sort_by="relevance"):
+        """
+        Sort videos based on the specified criteria.
+        
+        Args:
+            videos: List of video dictionaries
+            sort_by: Sorting criteria - "relevance" (default), "duration", "views", "title"
+        
+        Returns:
+            Sorted list of videos
+        """
+        if sort_by == "duration":
+            # Sort by duration (shortest first)
+            return sorted(videos, key=lambda x: x.get("duration_minutes", float("inf")))
+        elif sort_by == "duration_desc":
+            # Sort by duration (longest first)
+            return sorted(videos, key=lambda x: x.get("duration_minutes", 0), reverse=True)
+        elif sort_by == "views":
+            # Sort by view count (most viewed first)
+            return sorted(videos, key=lambda x: int(x.get("views", "0").replace(",", "") or "0"), reverse=True)
+        elif sort_by == "title":
+            # Sort alphabetically by title
+            return sorted(videos, key=lambda x: x.get("title", "").lower())
+        else:
+            # Default to the original order (by relevance from YouTube API)
+            return videos
 
     def _search_youtube_single(self, query: str, subject: str, max_duration_minutes: int = None) -> List[Dict[str, Any]]:
         """
@@ -421,7 +450,7 @@ class ExamPrepAgent:
             
             # Process the videos from Gate Smashers
             candidate_videos = []
-            already_selected_ids = set()  # Track video IDs to avoid duplicates
+            already_selected_ids = set()  # Track video IDs to avoid duplicates within this search
             
             for item in channel_videos_response.get("items", []):
                 video_id = item["id"]["videoId"]
@@ -492,12 +521,14 @@ class ExamPrepAgent:
     def _return_response(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Format the final response with topics and recommended videos."""
         topics_with_videos = request.get("topics_with_videos", [])
+        total_video_minutes = request.get("total_video_minutes", 0)
         metadata = request.get("metadata", {})
 
         prompt = self.type_prompts["RETURN_RESPONSE"]
 
         # Add the topics and videos information to the prompt
         prompt += f"\n\nTopics and videos information: {json.dumps(topics_with_videos, indent=2)}"
+        prompt += f"\n\nTotal video duration: {total_video_minutes} minutes"
 
         response = self._call_llm(prompt, stage="RETURN_RESPONSE")
 
@@ -505,10 +536,11 @@ class ExamPrepAgent:
             "status": "success",
             "study_plan": response,
             "topics_with_videos": topics_with_videos,
+            "total_video_minutes": total_video_minutes,
             "metadata": metadata
         }
 
-    def process_workflow(self, board: str, class_level: str, department: str, subject: str, max_duration_minutes: int = None) -> Dict[str, Any]:
+    def process_workflow(self, board: str, class_level: str, department: str, subject: str, max_duration_minutes: int = None, sort_by: str = "relevance") -> Dict[str, Any]:
         """
         Run the complete workflow from start to finish with efficiency improvements.
         
@@ -518,6 +550,7 @@ class ExamPrepAgent:
             department: Department/stream
             subject: Subject
             max_duration_minutes: Optional maximum video duration in minutes
+            sort_by: How to sort videos - "relevance" (default), "duration", "duration_desc", "views", "title"
         """
         try:
             # Step 1: Fetch question papers
@@ -543,26 +576,54 @@ class ExamPrepAgent:
             # Ensure we only process 5 topics at most
             important_topics = analysis_response.get("important_topics", [])[:5]
             
+            # Create a set to track unique video IDs across all topics
+            all_video_ids = set()
+            
             for topic in important_topics:
                 query_request = {
                     "type": "GENERATE_QUERY",
                     "topic": topic["topic_name"],
                     "metadata": analysis_response["metadata"],
-                    "max_duration_minutes": max_duration_minutes
+                    "max_duration_minutes": max_duration_minutes,
+                    "already_selected_ids": all_video_ids  # Pass the already selected IDs
                 }
                 query_response = self.process_request(query_request)
-
+                
+                # Update our global set of video IDs with any new ones found
+                if isinstance(query_response.get("already_selected_ids"), set):
+                    all_video_ids.update(query_response.get("already_selected_ids"))
+                
+                # Sort the videos based on the specified criteria
+                sorted_videos = self._sort_videos(query_response.get("videos", []), sort_by)
+                
                 # Add videos to the topic
                 topic_with_videos = {
                     **topic,
-                    "videos": query_response.get("videos", [])
+                    "videos": sorted_videos
                 }
+                
+                # Calculate total time for this topic's videos
+                total_minutes = sum(video.get("duration_minutes", 0) for video in topic_with_videos["videos"])
+                topic_with_videos["total_video_minutes"] = round(total_minutes, 1)
+                
                 topics_with_videos.append(topic_with_videos)
+
+            # Sort topics by importance if applicable
+            topics_with_videos = sorted(topics_with_videos, key=lambda x: x.get("importance", 0), reverse=True)
+
+            # Collect all videos for overall time calculation
+            all_videos = []
+            for topic in topics_with_videos:
+                all_videos.extend(topic.get("videos", []))
+            
+            # Calculate overall total time
+            overall_total_minutes = sum(video.get("duration_minutes", 0) for video in all_videos)
 
             # Step 4: Return the final response
             final_request = {
                 "type": "RETURN_RESPONSE",
                 "topics_with_videos": topics_with_videos,
+                "total_video_minutes": round(overall_total_minutes, 1),
                 "metadata": analysis_response["metadata"]
             }
             final_response = self.process_request(final_request)
