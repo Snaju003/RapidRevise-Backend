@@ -10,7 +10,7 @@ class RagService:
     def __init__(self):
         # Use os.environ.get to fetch environment variable GROQ_API_KEY
         self.groq_client = Groq(
-            api_key="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")
+            api_key="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")
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         self.vector_store = None
 
