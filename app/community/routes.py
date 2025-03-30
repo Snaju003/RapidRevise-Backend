@@ -106,17 +106,11 @@ def google_callback():
             existing_user = existing_users["documents"][0]
             user_id = existing_user["$id"]
             
-            # Check if the role is 'USER' and update it to 'ADMIN'
+            # If the role is 'USER', do not allow signing up as admin.
             if existing_user.get('role') == 'USER':
-                # Update the user's role to ADMIN
-                database_service.update_document(
-                    database_id=app.config['APPWRITE_DATABASE_ID'],
-                    collection_id=app.config['APPWRITE_USER_COLLECTION_ID'],
-                    document_id=user_id,
-                    data={
-                        'role': 'ADMIN'
-                    }
-                )
+                return jsonify({'error': 'You are a user, cannot signup as admin.'}), 400
+            
+            # If the user already has an admin role, no need to update it.
         else:
             # 2b. Create new user in Appwrite with a unique ID
             user_id = ID.unique()
@@ -148,7 +142,6 @@ def google_callback():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
 
 @community_bp.route('/', methods=['POST'])
 @admin_required
