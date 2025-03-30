@@ -524,21 +524,135 @@ class ExamPrepAgent:
         total_video_minutes = request.get("total_video_minutes", 0)
         metadata = request.get("metadata", {})
 
+        # First, get the original text response
         prompt = self.type_prompts["RETURN_RESPONSE"]
-
-        # Add the topics and videos information to the prompt
         prompt += f"\n\nTopics and videos information: {json.dumps(topics_with_videos, indent=2)}"
         prompt += f"\n\nTotal video duration: {total_video_minutes} minutes"
+        text_response = self._call_llm(prompt, stage="RETURN_RESPONSE")
+        
+        # Now create a structured format prompt that explicitly uses the topics from topics_with_videos
+        structuring_prompt = f"""
+        Based on the study plan you just created, reformat it into an array of JSON objects with this structure:
+        [
+            {{
+                "question": "What is the key concept of [topic]?",
+                "recommendation": "Study this by watching [specific video] and focusing on [specific aspect]"
+            }},
+            // More question-recommendation pairs
+        ]
+        
+        Create exactly 2 question-recommendation pairs for EACH of these topics, using the EXACT topic names:
+        {", ".join([topic.get("topic_name", "Unknown Topic") for topic in topics_with_videos])}
+        
+        Make sure to use the actual topic names from the list above and do not substitute them with other topics.
+        Include specific video recommendations from the available videos where possible.
+        
+        End with one overall study strategy question-recommendation pair.
+        Return only valid JSON, nothing else.
+        """
+        
+        # Get structured response 
+        structured_json_str = self._call_llm(structuring_prompt, stage="RETURN_RESPONSE", temperature=0.4)
+        
+        # Try to extract just the JSON part
+        try:
+            # Find JSON array in the response
+            json_start = structured_json_str.find('[')
+            json_end = structured_json_str.rfind(']') + 1
+            
+            if json_start >= 0 and json_end > json_start:
+                json_str = structured_json_str[json_start:json_end]
+                structured_plan = json.loads(json_str)
+            else:
+                # Try to parse the whole response as JSON
+                structured_plan = json.loads(structured_json_str)
+                
+        except json.JSONDecodeError:
+            # If JSON parsing fails, create a structured plan directly from the topics
+            self.logger.warning("Failed to parse structured response as JSON. Creating structured plan from topics.")
+            structured_plan = self._create_structured_plan_from_topics(topics_with_videos, total_video_minutes)
 
-        response = self._call_llm(prompt, stage="RETURN_RESPONSE")
+        # Validate that the structured plan contains questions for all topics
+        topic_names = [topic.get("topic_name", "").lower() for topic in topics_with_videos]
+        missing_topics = []
+        
+        # Check if each topic is represented in the structured plan
+        for topic_name in topic_names:
+            found = False
+            for item in structured_plan:
+                if topic_name.lower() in item.get("question", "").lower():
+                    found = True
+                    break
+            if not found:
+                missing_topics.append(topic_name)
+        
+        # If topics are missing, add them using the fallback method
+        if missing_topics:
+            self.logger.warning(f"Topics missing from structured plan: {missing_topics}")
+            missing_topic_objects = [t for t in topics_with_videos if t.get("topic_name", "").lower() in missing_topics]
+            additional_items = self._create_structured_plan_from_topics(missing_topic_objects, 0)
+            structured_plan.extend(additional_items)
 
         return {
             "status": "success",
-            "study_plan": response,
+            "study_plan": structured_plan,
+            "study_plan_text": text_response,
             "topics_with_videos": topics_with_videos,
             "total_video_minutes": total_video_minutes,
             "metadata": metadata
         }
+
+    def _create_structured_plan_from_topics(self, topics: List[Dict[str, Any]], total_video_minutes: float) -> List[Dict[str, Any]]:
+        """Create a structured study plan directly from topics and videos."""
+        structured_plan = []
+        
+        for topic in topics:
+            topic_name = topic.get("topic_name", "Unknown Topic")
+            videos = topic.get("videos", [])
+            importance = topic.get("importance", 5)
+            
+            # Add fundamental concepts question
+            question1 = {
+                "question": f"What are the key concepts of {topic_name}?",
+                "recommendation": f"Focus on understanding the fundamentals of {topic_name}, which has an importance score of {importance}/10. "
+            }
+            
+            # Add video recommendation if available
+            if videos and len(videos) > 0:
+                video_title = videos[0].get("title", "")
+                video_duration = videos[0].get("duration", "")
+                video_url = videos[0].get("url", "")
+                question1["recommendation"] += f"Watch '{video_title}' ({video_duration}) available at {video_url}. "
+            
+            question1["recommendation"] += f"Allocate approximately {topic.get('prep_time_minutes', 30)} minutes to study this topic."
+            structured_plan.append(question1)
+            
+            # Add practical application question
+            question2 = {
+                "question": f"How to solve problems related to {topic_name}?",
+                "recommendation": f"Practice applying concepts from {topic_name} to solve problems. "
+            }
+            
+            # Add second video recommendation if available
+            if videos and len(videos) > 1:
+                video_title = videos[1].get("title", "")
+                video_duration = videos[1].get("duration", "")
+                video_url = videos[1].get("url", "")
+                question2["recommendation"] += f"Watch '{video_title}' ({video_duration}) available at {video_url}. "
+            
+            question2["recommendation"] += "Work through example problems and understand the application of theoretical concepts."
+            structured_plan.append(question2)
+        
+        # Add overall study strategy if total_video_minutes is provided
+        if total_video_minutes > 0:
+            structured_plan.append({
+                "question": "What is the best overall study strategy?",
+                "recommendation": f"Allocate time based on topic importance scores. Focus on high-priority topics first. "
+                                f"Complete all video content (approximately {total_video_minutes} minutes total) and supplement "
+                                f"with practice questions from previous papers. Review the most important concepts right before the exam."
+            })
+        
+        return structured_plan
 
     def process_workflow(self, board: str, class_level: str, department: str, subject: str, max_duration_minutes: int = None, sort_by: str = "relevance") -> Dict[str, Any]:
         """
@@ -597,15 +711,18 @@ class ExamPrepAgent:
                 sorted_videos = self._sort_videos(query_response.get("videos", []), sort_by)
                 
                 # Add videos to the topic
+                # Add videos to the topic
                 topic_with_videos = {
                     **topic,
                     "videos": sorted_videos
                 }
-                
+
                 # Calculate total time for this topic's videos
                 total_minutes = sum(video.get("duration_minutes", 0) for video in topic_with_videos["videos"])
                 topic_with_videos["total_video_minutes"] = round(total_minutes, 1)
-                
+                # Update prep_time_minutes to match the video duration
+                topic_with_videos["prep_time_minutes"] = round(total_minutes, 1)
+
                 topics_with_videos.append(topic_with_videos)
 
             # Sort topics by importance if applicable
