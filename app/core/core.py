@@ -38,24 +38,13 @@ class ExamPrepAgent:
                 Keep Subject name at top
             """,
             "ANALYZE_QUESTION_PAPER": """
-                Extract the most occurring or likely-to-be-asked topics from these question papers:
-                {paper}
+           Extract the most occurring or likely-to-be-asked topics from these question papers:
+    {paper}
 
-                Provide your analysis as a structured list of topics(hardly 5) with their importance metrics.
-                Only return topic with belong to this object for exam prep.
-                For Physics give me Newton's Law, Optics, Quantum Physics, EM
-                For Biology give me Reproductive System, Human Anatomy,Cellular Respiration
-                For Maths give me Calculas, vector algebra, linear ,trigonometry 
-                For Networks give me Network Protocols, Network Security, Wireless Communications.
-                For Operating Systems give me Process Scheduling, Memory Management, File Systems.
-                For DBMS give me SQL Fundamentals, Database Normalization, Transaction Management.
-                For Data Structures give me Arrays and Lists, Trees and Graphs, Hash Tables.
-                For Algorithms give me Sorting Techniques, Searching Techniques, Dynamic Programming.
-                For Computer Architecture give me Instruction Set Architecture, Pipelining, Cache Memory.
-                For Software Engineering give me Software Development Life Cycle (SDLC), Design Patterns, Testing & Quality Assurance.
-                For Cyber Security give me Cryptography, Network Security, Ethical Hacking.
-                For Machine Learning give me Supervised Learning, Unsupervised Learning, Neural Networks.
-                For Artificial Intelligence give me Search Algorithms, Knowledge Representation, Reinforcement Learning.
+             Provide your analysis as a structured list of topics (maximum 5) with their importance metrics.
+              Focus only on topics relevant to {subject} for {board} {class_level} {department}.
+    
+            Return the top 5 most important topics for this specific subject based on your analysis of the question papers.
             """,
             "GENERATE_QUERY": """
                 Generate a search query string for YouTube based on the topics: "{topic}" in {subject} for {board} {class_level} {department}.
@@ -219,32 +208,33 @@ class ExamPrepAgent:
         papers = request.get("paper", "")
         subject = request.get("metadata", {}).get("subject", "")
         board = request.get("metadata", {}).get("board", "")
-        class_level = request.get("metadata", {}).get(
-            "class_level", "")  # Changed to class_level
+        class_level = request.get("metadata", {}).get("class_level", "")
         department = request.get("metadata", {}).get("department", "")
 
-        prompt = self.type_prompts["ANALYZE_QUESTION_PAPER"].format(
-            paper=papers,
-            subject=subject,
-            board=board,
-            class_level=class_level,  # Using class_level
-            department=department,
-        )
+        # Update the prompt to focus on the specific subject
+        prompt = f"""
+        Extract the most occurring or likely-to-be-asked topics from these question papers:
+        {papers}
+
+        Provide your analysis as a structured list of topics (maximum 5) with their importance metrics.
+        Focus ONLY on topics relevant to {subject} for {board} {class_level} {department}.
+        
+        Return the top 5 most important topics for {subject} based on your analysis of the question papers.
+        """
 
         response = self._call_llm(prompt, stage="ANALYZE_QUESTION_PAPER")
 
         # Parse the response to extract topics
-        # This would be more sophisticated in a real implementation
         try:
-            # Attempt to extract structured information about topics
-            topics = self._extract_topics(response)
+            # Pass the subject to ensure topic extraction is focused
+            topics = self._extract_topics(response, subject)
             return {
                 "status": "success",
                 "important_topics": topics,
                 "raw_analysis": response,
                 "metadata": {
                     "board": board,
-                    "class_level": class_level,  # Changed to class_level
+                    "class_level": class_level,
                     "department": department,
                     "subject": subject
                 }
@@ -257,29 +247,27 @@ class ExamPrepAgent:
                 "error": "Failed to structure topics data",
                 "metadata": {
                     "board": board,
-                    "class_level": class_level,  # Changed to class_level
+                    "class_level": class_level,
                     "department": department,
                     "subject": subject
                 }
             }
 
-    def _extract_topics(self, analysis_text: str) -> List[Dict[str, Any]]:
+    def _extract_topics(self, analysis_text: str, subject: str) -> List[Dict[str, Any]]:
         """Extract structured topic information from the LLM analysis."""
-        # In a real implementation, this would use regex or more sophisticated parsing
-        # For now, we'll ask the LLM to structure its own output
-
-        structuring_prompt = """
-        Based on your previous analysis, extract just the list of important topics in the following JSON format:
+        # Include the subject in the structuring prompt
+        structuring_prompt = f"""
+        Based on your previous analysis, extract just the list of important topics for {subject} in the following JSON format:
         [
-            {
-                "topic_name": "Name of the topic",
+            {{
+                "topic_name": "Name of the topic specific to {subject}",
                 "importance": 8,  // Scale of 1-10
                 "prep_time_minutes": 60  // Estimated preparation time in minutes
-            },
+            }},
             // More topics...
         ]
         
-        Only respond with the valid JSON array, nothing else.
+        Only respond with the valid JSON array for {subject} topics, nothing else.
         """
 
         structured_response = self._call_llm(
@@ -290,7 +278,7 @@ class ExamPrepAgent:
 
         # Try to extract just the JSON part
         try:
-            # Find JSON in the response (assuming it might have text before/after)
+            # Find JSON in the response
             json_start = structured_response.find('[')
             json_end = structured_response.rfind(']') + 1
 
@@ -304,7 +292,7 @@ class ExamPrepAgent:
             # If we can't parse as JSON, return a simple structure
             self.logger.warning(
                 "Failed to parse LLM output as JSON, creating simple structure")
-            return [{"topic_name": "Topic extraction failed", "raw_analysis": structured_response}]
+            return [{"topic_name": f"Topic extraction failed for {subject}", "raw_analysis": structured_response}]
 
     def _generate_query(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Generate optimized search queries for the given topic."""
@@ -438,7 +426,7 @@ class ExamPrepAgent:
                 "subject": subject
             }
             papers_response = self.process_request(papers_request)
-
+            
             # Step 2: Analyze question papers
             analysis_request = {
                 "type": "ANALYZE_QUESTION_PAPER",
